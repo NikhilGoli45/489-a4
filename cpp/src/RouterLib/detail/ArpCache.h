@@ -14,7 +14,14 @@
 
 struct ArpEntry {
     std::chrono::steady_clock::time_point timeAdded;
-    // TODO: Fill in this struct... and maybe add more structs
+    mac_addr mac;
+};
+
+struct ArpRequest {
+    std::chrono::steady_clock::time_point lastSent;
+    int retries;
+    std::string iface;
+    std::vector<Packet> waitingPackets;
 };
 
 class ArpCache {
@@ -51,6 +58,7 @@ private:
     std::shared_ptr<IRoutingTable> routingTable;
 
     std::unordered_map<ip_addr, ArpEntry> entries;
+    std::unordered_map<ip_addr, ArpRequest> requests;
 };
 
 
