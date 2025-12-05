@@ -25,6 +25,8 @@ private:
     std::shared_ptr<IPacketSender> packetSender;
 
     std::unique_ptr<ArpCache> arpCache;
+
+    void sendIcmp(const std::vector<uint8_t>& originalPacket, uint8_t type, uint8_t code);
 };
 
 
