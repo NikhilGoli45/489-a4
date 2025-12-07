@@ -1,8 +1,10 @@
 #ifndef STATICROUTER_H
 #define STATICROUTER_H
+
 #include <vector>
 #include <memory>
 #include <mutex>
+#include <string>
 
 #include "ArpCache.h"
 #include "IPacketSender.h"
@@ -12,11 +14,11 @@
 class StaticRouter : public IStaticRouter {
 public:
     StaticRouter(
-        std::unique_ptr<ArpCache> arpCache, 
+        std::unique_ptr<ArpCache> arpCache,
         std::shared_ptr<IRoutingTable> routingTable,
         std::shared_ptr<IPacketSender> packetSender);
 
-    virtual void handlePacket(std::vector<uint8_t> packet, std::string iface) override;
+    void handlePacket(std::vector<uint8_t> packet, std::string iface) override;
 
 private:
     std::mutex mutex;
@@ -26,8 +28,10 @@ private:
 
     std::unique_ptr<ArpCache> arpCache;
 
-    void sendIcmp(const std::vector<uint8_t>& originalPacket, uint8_t type, uint8_t code);
+    void sendIcmp(const std::vector<uint8_t>& originalPacket,
+                  uint8_t type,
+                  uint8_t code,
+                  const std::string& iface_hint = "");
 };
 
-
-#endif //STATICROUTER_H
+#endif // STATICROUTER_H

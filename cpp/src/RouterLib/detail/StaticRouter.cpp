@@ -27,14 +27,16 @@ void StaticRouter::handlePacket(std::vector<uint8_t> packet, std::string iface)
         return;
     }
 
-    sr_ethernet_hdr_t* eth_hdr = reinterpret_cast<sr_ethernet_hdr_t*>(packet.data());
+    auto* eth_hdr = reinterpret_cast<sr_ethernet_hdr_t*>(packet.data());
     uint16_t eth_type = ntohs(eth_hdr->ether_type);
 
     if (eth_type == ethertype_arp) {
         if (packet.size() < sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t)) return;
-        sr_arp_hdr_t* arp_hdr = reinterpret_cast<sr_arp_hdr_t*>(packet.data() + sizeof(sr_ethernet_hdr_t));
+        auto* arp_hdr = reinterpret_cast<sr_arp_hdr_t*>(
+            packet.data() + sizeof(sr_ethernet_hdr_t));
 
-        if (ntohs(arp_hdr->ar_hrd) != arp_hrd_ethernet || ntohs(arp_hdr->ar_pro) != ethertype_ip) return;
+        if (ntohs(arp_hdr->ar_hrd) != arp_hrd_ethernet ||
+            ntohs(arp_hdr->ar_pro) != ethertype_ip) return;
 
         uint16_t op = ntohs(arp_hdr->ar_op);
         uint32_t tip = arp_hdr->ar_tip;
@@ -44,7 +46,8 @@ void StaticRouter::handlePacket(std::vector<uint8_t> packet, std::string iface)
             if (op == arp_op_request) {
                 Packet reply(sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t));
                 auto* eth = reinterpret_cast<sr_ethernet_hdr_t*>(reply.data());
-                auto* arp = reinterpret_cast<sr_arp_hdr_t*>(reply.data() + sizeof(sr_ethernet_hdr_t));
+                auto* arp = reinterpret_cast<sr_arp_hdr_t*>(
+                    reply.data() + sizeof(sr_ethernet_hdr_t));
 
                 std::memcpy(eth->ether_dhost, arp_hdr->ar_sha, ETHER_ADDR_LEN);
                 std::memcpy(eth->ether_shost, interface.mac.data(), ETHER_ADDR_LEN);
@@ -69,11 +72,8 @@ void StaticRouter::handlePacket(std::vector<uint8_t> packet, std::string iface)
         }
     } else if (eth_type == ethertype_ip) {
         if (packet.size() < sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t)) return;
-        sr_ip_hdr_t* ip_hdr = reinterpret_cast<sr_ip_hdr_t*>(packet.data() + sizeof(sr_ethernet_hdr_t));
-
-        mac_addr src_mac;
-        std::memcpy(src_mac.data(), eth_hdr->ether_shost, ETHER_ADDR_LEN);
-        arpCache->addEntry(ip_hdr->ip_src, src_mac);
+        auto* ip_hdr = reinterpret_cast<sr_ip_hdr_t*>(
+            packet.data() + sizeof(sr_ethernet_hdr_t));
 
         if (ip_hdr->ip_hl < 5) return;
         size_t ip_header_len = ip_hdr->ip_hl * 4;
@@ -98,8 +98,11 @@ void StaticRouter::handlePacket(std::vector<uint8_t> packet, std::string iface)
 
         if (is_for_us) {
             if (ip_hdr->ip_p == ip_protocol_icmp) {
-                if (packet.size() < sizeof(sr_ethernet_hdr_t) + ip_header_len + sizeof(sr_icmp_hdr_t)) return;
-                sr_icmp_hdr_t* icmp_hdr = reinterpret_cast<sr_icmp_hdr_t*>(packet.data() + sizeof(sr_ethernet_hdr_t) + ip_header_len);
+                if (packet.size() < sizeof(sr_ethernet_hdr_t) +
+                                    ip_header_len +
+                                    sizeof(sr_icmp_hdr_t)) return;
+                auto* icmp_hdr = reinterpret_cast<sr_icmp_hdr_t*>(
+                    packet.data() + sizeof(sr_ethernet_hdr_t) + ip_header_len);
 
                 uint16_t icmp_sum = icmp_hdr->icmp_sum;
                 icmp_hdr->icmp_sum = 0;
@@ -122,39 +125,36 @@ void StaticRouter::handlePacket(std::vector<uint8_t> packet, std::string iface)
                     icmp_hdr->icmp_sum = 0;
                     icmp_hdr->icmp_sum = cksum(icmp_hdr, icmp_len);
 
-                    auto route = routingTable->getRoutingEntry(src);
-                    if (route) {
-                        uint32_t next_hop = route->gateway ? route->gateway : src;
-                        auto mac = arpCache->getEntry(next_hop);
-                        auto out_iface = routingTable->getRoutingInterface(route->iface);
-                        std::memcpy(eth_hdr->ether_shost, out_iface.mac.data(), ETHER_ADDR_LEN);
+                    auto interface = routingTable->getRoutingInterface(iface);
+                    uint8_t tmp_mac[ETHER_ADDR_LEN];
+                    std::memcpy(tmp_mac, eth_hdr->ether_shost, ETHER_ADDR_LEN);
+                    std::memcpy(eth_hdr->ether_shost, interface.mac.data(), ETHER_ADDR_LEN);
+                    std::memcpy(eth_hdr->ether_dhost, tmp_mac, ETHER_ADDR_LEN);
 
-                        if (mac) {
-                            std::memcpy(eth_hdr->ether_dhost, mac->data(), ETHER_ADDR_LEN);
-                            packetSender->sendPacket(packet, route->iface);
-                        } else {
-                            arpCache->queuePacket(next_hop, packet, route->iface);
-                        }
-                    }
+                    packetSender->sendPacket(packet, iface);
                 }
             } else if (ip_hdr->ip_p == ip_protocol_tcp || ip_hdr->ip_p == ip_protocol_udp) {
-                 sendIcmp(packet, 3, 3);
+                sendIcmp(packet, 3, 3, iface);
             }
         } else {
-            if (ip_hdr->ip_ttl <= 1) {
-                sendIcmp(packet, 11, 0);
+            if (ip_hdr->ip_ttl == 0) {
+                return;
+            }
+
+            auto route = routingTable->getRoutingEntry(dst);
+            if (!route) {
+                sendIcmp(packet, 3, 0, iface);
+                return;
+            }
+
+            if (ip_hdr->ip_ttl == 1) {
+                sendIcmp(packet, 11, 0, iface);
                 return;
             }
 
             ip_hdr->ip_ttl--;
             ip_hdr->ip_sum = 0;
             ip_hdr->ip_sum = cksum(ip_hdr, ip_header_len);
-
-            auto route = routingTable->getRoutingEntry(dst);
-            if (!route) {
-                sendIcmp(packet, 3, 0);
-                return;
-            }
 
             uint32_t next_hop = route->gateway ? route->gateway : dst;
             auto mac = arpCache->getEntry(next_hop);
@@ -171,55 +171,69 @@ void StaticRouter::handlePacket(std::vector<uint8_t> packet, std::string iface)
     }
 }
 
-void StaticRouter::sendIcmp(const std::vector<uint8_t>& originalPacket, uint8_t type, uint8_t code) {
+void StaticRouter::sendIcmp(const std::vector<uint8_t>& originalPacket,
+                            uint8_t type,
+                            uint8_t code,
+                            const std::string& iface_hint) {
     if (originalPacket.size() < sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t)) return;
 
-    const sr_ip_hdr_t* orig_ip = reinterpret_cast<const sr_ip_hdr_t*>(originalPacket.data() + sizeof(sr_ethernet_hdr_t));
+    const auto* orig_eth = reinterpret_cast<const sr_ethernet_hdr_t*>(
+        originalPacket.data());
+    const auto* orig_ip = reinterpret_cast<const sr_ip_hdr_t*>(
+        originalPacket.data() + sizeof(sr_ethernet_hdr_t));
 
     if (orig_ip->ip_p == ip_protocol_icmp) {
         size_t ip_header_len = orig_ip->ip_hl * 4;
-        if (originalPacket.size() >= sizeof(sr_ethernet_hdr_t) + ip_header_len + sizeof(sr_icmp_hdr_t)) {
-            const sr_icmp_hdr_t* icmp_hdr = reinterpret_cast<const sr_icmp_hdr_t*>(
+        if (originalPacket.size() >= sizeof(sr_ethernet_hdr_t) +
+                                     ip_header_len +
+                                     sizeof(sr_icmp_hdr_t)) {
+            const auto* icmp_hdr = reinterpret_cast<const sr_icmp_hdr_t*>(
                 originalPacket.data() + sizeof(sr_ethernet_hdr_t) + ip_header_len);
 
-            if (icmp_hdr->icmp_type == 3 || icmp_hdr->icmp_type == 4 || 
-                icmp_hdr->icmp_type == 5 || icmp_hdr->icmp_type == 11 || 
+            if (icmp_hdr->icmp_type == 3 ||
+                icmp_hdr->icmp_type == 4 ||
+                icmp_hdr->icmp_type == 5 ||
+                icmp_hdr->icmp_type == 11 ||
                 icmp_hdr->icmp_type == 12) {
                 return;
             }
         }
     }
 
-    uint32_t dest_ip = orig_ip->ip_src;
+    if (iface_hint.empty()) {
+        return;
+    }
 
-    auto route = routingTable->getRoutingEntry(dest_ip);
-    if (!route) return;
-
-    auto out_iface = routingTable->getRoutingInterface(route->iface);
+    auto out_iface = routingTable->getRoutingInterface(iface_hint);
 
     size_t icmp_data_len = sizeof(sr_ip_hdr_t) + 8;
-    size_t total_len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t);
+    size_t total_len = sizeof(sr_ethernet_hdr_t) +
+                       sizeof(sr_ip_hdr_t) +
+                       sizeof(sr_icmp_t3_hdr_t);
 
     Packet response(total_len);
-    sr_ethernet_hdr_t* eth = reinterpret_cast<sr_ethernet_hdr_t*>(response.data());
-    sr_ip_hdr_t* ip = reinterpret_cast<sr_ip_hdr_t*>(response.data() + sizeof(sr_ethernet_hdr_t));
-    sr_icmp_t3_hdr_t* icmp = reinterpret_cast<sr_icmp_t3_hdr_t*>(response.data() + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
+    auto* eth = reinterpret_cast<sr_ethernet_hdr_t*>(response.data());
+    auto* ip_hdr = reinterpret_cast<sr_ip_hdr_t*>(
+        response.data() + sizeof(sr_ethernet_hdr_t));
+    auto* icmp = reinterpret_cast<sr_icmp_t3_hdr_t*>(
+        response.data() + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
 
     std::memcpy(eth->ether_shost, out_iface.mac.data(), ETHER_ADDR_LEN);
+    std::memcpy(eth->ether_dhost, orig_eth->ether_shost, ETHER_ADDR_LEN);
     eth->ether_type = htons(ethertype_ip);
 
-    ip->ip_hl = 5;
-    ip->ip_v = 4;
-    ip->ip_tos = 0;
-    ip->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
-    ip->ip_id = 0;
-    ip->ip_off = htons(IP_DF);
-    ip->ip_ttl = INIT_TTL;
-    ip->ip_p = ip_protocol_icmp;
-    ip->ip_src = out_iface.ip;
-    ip->ip_dst = dest_ip;
-    ip->ip_sum = 0;
-    ip->ip_sum = cksum(ip, sizeof(sr_ip_hdr_t));
+    ip_hdr->ip_hl = 5;
+    ip_hdr->ip_v = 4;
+    ip_hdr->ip_tos = 0;
+    ip_hdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
+    ip_hdr->ip_id = 0;
+    ip_hdr->ip_off = htons(IP_DF);
+    ip_hdr->ip_ttl = INIT_TTL;
+    ip_hdr->ip_p = ip_protocol_icmp;
+    ip_hdr->ip_src = out_iface.ip;
+    ip_hdr->ip_dst = orig_ip->ip_src;
+    ip_hdr->ip_sum = 0;
+    ip_hdr->ip_sum = cksum(ip_hdr, sizeof(sr_ip_hdr_t));
 
     icmp->icmp_type = type;
     icmp->icmp_code = code;
@@ -229,13 +243,5 @@ void StaticRouter::sendIcmp(const std::vector<uint8_t>& originalPacket, uint8_t 
     icmp->icmp_sum = 0;
     icmp->icmp_sum = cksum(icmp, sizeof(sr_icmp_t3_hdr_t));
 
-    uint32_t next_hop = route->gateway ? route->gateway : dest_ip;
-    auto mac = arpCache->getEntry(next_hop);
-
-    if (mac) {
-        std::memcpy(eth->ether_dhost, mac->data(), ETHER_ADDR_LEN);
-        packetSender->sendPacket(response, route->iface);
-    } else {
-        arpCache->queuePacket(next_hop, response, route->iface);
-    }
+    packetSender->sendPacket(response, iface_hint);
 }
