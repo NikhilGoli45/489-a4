@@ -54,7 +54,7 @@ void ArpCache::sendArpRequest(uint32_t ip, const std::string& iface) {
         arp_hdr->ar_pro = htons(ethertype_ip);
         arp_hdr->ar_hln = ETHER_ADDR_LEN;
         arp_hdr->ar_pln = 4;
-        arp_hdr->ar_op = htons(arp_op_request);
+        arp_hdr->ar_op  = htons(arp_op_request);
         std::memcpy(arp_hdr->ar_sha, routingInterface.mac.data(), ETHER_ADDR_LEN);
         arp_hdr->ar_sip = routingInterface.ip;
         std::memset(arp_hdr->ar_tha, 0x00, ETHER_ADDR_LEN);
@@ -125,13 +125,13 @@ void ArpCache::tick() {
                 eth->ether_type = htons(ethertype_ip);
 
                 ip_hdr->ip_hl = 5;
-                ip_hdr->ip_v = 4;
+                ip_hdr->ip_v  = 4;
                 ip_hdr->ip_tos = 0;
                 ip_hdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
-                ip_hdr->ip_id = 0;
+                ip_hdr->ip_id  = 0;
                 ip_hdr->ip_off = htons(IP_DF);
                 ip_hdr->ip_ttl = INIT_TTL;
-                ip_hdr->ip_p = ip_protocol_icmp;
+                ip_hdr->ip_p   = ip_protocol_icmp;
                 ip_hdr->ip_src = out_iface.ip;
                 ip_hdr->ip_dst = dest_ip;
                 ip_hdr->ip_sum = 0;
@@ -160,19 +160,22 @@ void ArpCache::tick() {
 void ArpCache::addEntry(uint32_t ip, const mac_addr& mac) {
     std::unique_lock lock(mutex);
 
+    auto req_it = requests.find(ip);
+    if (req_it == requests.end()) {
+        return;
+    }
+
     entries[ip] = {std::chrono::steady_clock::now(), mac};
 
-    auto it = requests.find(ip);
-    if (it != requests.end()) {
-        for (auto& packet : it->second.packets) {
-            if (packet.size() >= sizeof(sr_ethernet_hdr_t)) {
-                auto* eth = reinterpret_cast<sr_ethernet_hdr_t*>(packet.data());
-                std::memcpy(eth->ether_dhost, mac.data(), ETHER_ADDR_LEN);
-                packetSender->sendPacket(packet, it->second.iface);
-            }
+    for (auto& packet : req_it->second.packets) {
+        if (packet.size() >= sizeof(sr_ethernet_hdr_t)) {
+            auto* eth = reinterpret_cast<sr_ethernet_hdr_t*>(packet.data());
+            std::memcpy(eth->ether_dhost, mac.data(), ETHER_ADDR_LEN);
+            packetSender->sendPacket(packet, req_it->second.iface);
         }
-        requests.erase(it);
     }
+
+    requests.erase(req_it);
 }
 
 std::optional<mac_addr> ArpCache::getEntry(uint32_t ip) {
