@@ -207,10 +207,16 @@ void StaticRouter::sendIcmp(const std::vector<uint8_t>& originalPacket,
     std::string out_iface_name = iface_hint;
     RoutingInterface out_iface = routingTable->getRoutingInterface(iface_hint);
 
+    auto route_back = routingTable->getRoutingEntry(orig_ip->ip_src);
+    if (route_back) {
+        out_iface_name = route_back->iface;
+        out_iface = routingTable->getRoutingInterface(route_back->iface);
+    }
+
+    uint32_t router_ip_for_dest = 0;
     for (const auto& [name, intf] : routingTable->getRoutingInterfaces()) {
         if (intf.ip == orig_ip->ip_dst) {
-            out_iface_name = name;
-            out_iface = intf;
+            router_ip_for_dest = intf.ip;
             break;
         }
     }
@@ -240,6 +246,9 @@ void StaticRouter::sendIcmp(const std::vector<uint8_t>& originalPacket,
     ip_hdr->ip_ttl = INIT_TTL;
     ip_hdr->ip_p = ip_protocol_icmp;
     ip_hdr->ip_src = out_iface.ip;
+    if (type == 3 && code == 3 && router_ip_for_dest != 0) {
+        ip_hdr->ip_src = router_ip_for_dest;
+    }
     ip_hdr->ip_dst = orig_ip->ip_src;
     ip_hdr->ip_sum = 0;
     ip_hdr->ip_sum = cksum(ip_hdr, sizeof(sr_ip_hdr_t));
