@@ -153,6 +153,12 @@ void ArpCache::tick() {
                 icmp->unused = 0;
                 icmp->next_mtu = 0;
                 std::memcpy(icmp->data, orig_ip, icmp_data_len);
+
+                auto* inner_ip = reinterpret_cast<sr_ip_hdr_t*>(icmp->data);
+                inner_ip->ip_ttl = static_cast<uint8_t>(inner_ip->ip_ttl + 1);
+                inner_ip->ip_sum = 0;
+                inner_ip->ip_sum = cksum(inner_ip, inner_ip->ip_hl * 4);
+
                 icmp->icmp_sum = 0;
                 icmp->icmp_sum = cksum(icmp, sizeof(sr_icmp_t3_hdr_t));
 

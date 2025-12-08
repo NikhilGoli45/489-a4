@@ -207,23 +207,7 @@ void StaticRouter::sendIcmp(const std::vector<uint8_t>& originalPacket,
     std::string out_iface_name = iface_hint;
     RoutingInterface out_iface = routingTable->getRoutingInterface(iface_hint);
 
-    std::string dest_iface_name;
-    RoutingInterface dest_iface;
-    bool dest_found = false;
-    for (const auto& [name, intf] : routingTable->getRoutingInterfaces()) {
-        if (ntohl(intf.ip) == ntohl(orig_ip->ip_dst)) {
-            dest_iface_name = name;
-            dest_iface = intf;
-            dest_found = true;
-            break;
-        }
-    }
-
-    auto route_back = routingTable->getRoutingEntry(orig_ip->ip_src);
-    if (type == 3 && code == 3 && dest_found) {
-        out_iface_name = dest_iface_name;
-        out_iface = dest_iface;
-    } else if (route_back) {
+    if (auto route_back = routingTable->getRoutingEntry(orig_ip->ip_src)) {
         out_iface_name = route_back->iface;
         out_iface = routingTable->getRoutingInterface(route_back->iface);
     }
