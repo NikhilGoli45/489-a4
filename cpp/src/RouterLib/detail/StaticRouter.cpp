@@ -8,7 +8,7 @@
 #include "utils.h"
 
 StaticRouter::StaticRouter(
-    std::unique_ptr<ArpCache> arpCache,
+    std::unique_ptr<ArpCache> arpCache, 
     std::shared_ptr<IRoutingTable> routingTable,
     std::shared_ptr<IPacketSender> packetSender)
     : routingTable(routingTable)
@@ -57,7 +57,7 @@ void StaticRouter::handlePacket(std::vector<uint8_t> packet, std::string iface)
                 arp->ar_pro = arp_hdr->ar_pro;
                 arp->ar_hln = arp_hdr->ar_hln;
                 arp->ar_pln = arp_hdr->ar_pln;
-                arp->ar_op  = htons(arp_op_reply);
+                arp->ar_op = htons(arp_op_reply);
                 std::memcpy(arp->ar_sha, interface.mac.data(), ETHER_ADDR_LEN);
                 arp->ar_sip = interface.ip;
                 std::memcpy(arp->ar_tha, arp_hdr->ar_sha, ETHER_ADDR_LEN);
@@ -206,14 +206,6 @@ void StaticRouter::sendIcmp(const std::vector<uint8_t>& originalPacket,
 
     auto out_iface = routingTable->getRoutingInterface(iface_hint);
 
-    uint32_t icmp_src_ip = out_iface.ip;
-    for (const auto& [name, intf] : routingTable->getRoutingInterfaces()) {
-        if (intf.ip == orig_ip->ip_dst) {
-            icmp_src_ip = orig_ip->ip_dst;
-            break;
-        }
-    }
-
     size_t icmp_data_len = sizeof(sr_ip_hdr_t) + 8;
     size_t total_len = sizeof(sr_ethernet_hdr_t) +
                        sizeof(sr_ip_hdr_t) +
@@ -231,14 +223,14 @@ void StaticRouter::sendIcmp(const std::vector<uint8_t>& originalPacket,
     eth->ether_type = htons(ethertype_ip);
 
     ip_hdr->ip_hl = 5;
-    ip_hdr->ip_v  = 4;
+    ip_hdr->ip_v = 4;
     ip_hdr->ip_tos = 0;
     ip_hdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
-    ip_hdr->ip_id  = 0;
+    ip_hdr->ip_id = 0;
     ip_hdr->ip_off = htons(IP_DF);
     ip_hdr->ip_ttl = INIT_TTL;
-    ip_hdr->ip_p   = ip_protocol_icmp;
-    ip_hdr->ip_src = icmp_src_ip;
+    ip_hdr->ip_p = ip_protocol_icmp;
+    ip_hdr->ip_src = out_iface.ip;
     ip_hdr->ip_dst = orig_ip->ip_src;
     ip_hdr->ip_sum = 0;
     ip_hdr->ip_sum = cksum(ip_hdr, sizeof(sr_ip_hdr_t));
