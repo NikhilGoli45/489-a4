@@ -159,9 +159,10 @@ void StaticRouter::handlePacket(std::vector<uint8_t> packet, std::string iface)
             uint32_t next_hop = route->gateway ? route->gateway : dst;
             auto mac = arpCache->getEntry(next_hop);
 
+            auto out_iface = routingTable->getRoutingInterface(route->iface);
+            std::memcpy(eth_hdr->ether_shost, out_iface.mac.data(), ETHER_ADDR_LEN);
+
             if (mac) {
-                auto out_iface = routingTable->getRoutingInterface(route->iface);
-                std::memcpy(eth_hdr->ether_shost, out_iface.mac.data(), ETHER_ADDR_LEN);
                 std::memcpy(eth_hdr->ether_dhost, mac->data(), ETHER_ADDR_LEN);
                 packetSender->sendPacket(packet, route->iface);
             } else {
@@ -207,18 +208,25 @@ void StaticRouter::sendIcmp(const std::vector<uint8_t>& originalPacket,
     std::string out_iface_name = iface_hint;
     RoutingInterface out_iface = routingTable->getRoutingInterface(iface_hint);
 
-    auto route_back = routingTable->getRoutingEntry(orig_ip->ip_src);
-    if (route_back) {
-        out_iface_name = route_back->iface;
-        out_iface = routingTable->getRoutingInterface(route_back->iface);
-    }
-
-    uint32_t router_ip_for_dest = 0;
+    std::string dest_iface_name;
+    RoutingInterface dest_iface;
+    bool dest_found = false;
     for (const auto& [name, intf] : routingTable->getRoutingInterfaces()) {
         if (intf.ip == orig_ip->ip_dst) {
-            router_ip_for_dest = intf.ip;
+            dest_iface_name = name;
+            dest_iface = intf;
+            dest_found = true;
             break;
         }
+    }
+
+    auto route_back = routingTable->getRoutingEntry(orig_ip->ip_src);
+    if (type == 3 && code == 3 && dest_found) {
+        out_iface_name = dest_iface_name;
+        out_iface = dest_iface;
+    } else if (route_back) {
+        out_iface_name = route_back->iface;
+        out_iface = routingTable->getRoutingInterface(route_back->iface);
     }
 
     size_t icmp_data_len = sizeof(sr_ip_hdr_t) + 8;
@@ -246,9 +254,6 @@ void StaticRouter::sendIcmp(const std::vector<uint8_t>& originalPacket,
     ip_hdr->ip_ttl = INIT_TTL;
     ip_hdr->ip_p = ip_protocol_icmp;
     ip_hdr->ip_src = out_iface.ip;
-    if (type == 3 && code == 3 && router_ip_for_dest != 0) {
-        ip_hdr->ip_src = router_ip_for_dest;
-    }
     ip_hdr->ip_dst = orig_ip->ip_src;
     ip_hdr->ip_sum = 0;
     ip_hdr->ip_sum = cksum(ip_hdr, sizeof(sr_ip_hdr_t));
