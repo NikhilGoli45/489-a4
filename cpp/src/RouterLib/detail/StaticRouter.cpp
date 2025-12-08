@@ -252,5 +252,5 @@ void StaticRouter::sendIcmp(const std::vector<uint8_t>& originalPacket,
     icmp->icmp_sum = 0;
     icmp->icmp_sum = cksum(icmp, sizeof(sr_icmp_t3_hdr_t));
 
-    packetSender->sendPacket(response, iface_hint);
+    packetSender->sendPacket(response, out_iface_name);
 }
