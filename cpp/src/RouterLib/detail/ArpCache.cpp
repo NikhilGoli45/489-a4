@@ -108,9 +108,21 @@ void ArpCache::tick() {
 
             uint32_t dest_ip = orig_ip->ip_src;
 
-            try {
-                auto out_iface = routingTable->getRoutingInterface(request.iface);
+            std::string out_iface_name;
+            std::optional<RoutingInterface> out_iface_opt;
+            for (const auto& [name, intf] : routingTable->getRoutingInterfaces()) {
+                if (std::memcmp(intf.mac.data(), orig_eth->ether_dhost, ETHER_ADDR_LEN) == 0) {
+                    out_iface_name = name;
+                    out_iface_opt = intf;
+                    break;
+                }
+            }
+            if (!out_iface_opt.has_value() || out_iface_name.empty()) {
+                continue;
+            }
+            const auto& out_iface = *out_iface_opt;
 
+            try {
                 size_t icmp_data_len = sizeof(sr_ip_hdr_t) + 8;
                 size_t total_len = sizeof(sr_ethernet_hdr_t) +
                                    sizeof(sr_ip_hdr_t) +
@@ -148,7 +160,7 @@ void ArpCache::tick() {
                 icmp->icmp_sum = 0;
                 icmp->icmp_sum = cksum(icmp, sizeof(sr_icmp_t3_hdr_t));
 
-                packetSender->sendPacket(response, request.iface);
+                packetSender->sendPacket(response, out_iface_name);
             } catch (const std::exception& e) {
                 spdlog::error("Error sending ICMP Host Unreachable: {}", e.what());
             }
