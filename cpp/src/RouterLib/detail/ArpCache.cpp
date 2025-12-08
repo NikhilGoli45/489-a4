@@ -183,9 +183,12 @@ void ArpCache::addEntry(uint32_t ip, const mac_addr& mac) {
     auto now = std::chrono::steady_clock::now();
     entries[ip] = {now, mac};
 
+    auto out_iface = routingTable->getRoutingInterface(it->second.iface);
+
     for (auto& packet : it->second.packets) {
         if (packet.size() >= sizeof(sr_ethernet_hdr_t)) {
             auto* eth = reinterpret_cast<sr_ethernet_hdr_t*>(packet.data());
+            std::memcpy(eth->ether_shost, out_iface.mac.data(), ETHER_ADDR_LEN);
             std::memcpy(eth->ether_dhost, mac.data(), ETHER_ADDR_LEN);
             packetSender->sendPacket(packet, it->second.iface);
         }
@@ -212,6 +215,8 @@ void ArpCache::queuePacket(uint32_t ip, const Packet& packet, const std::string&
         if (packet.size() >= sizeof(sr_ethernet_hdr_t)) {
             Packet toSend = packet;
             auto* eth = reinterpret_cast<sr_ethernet_hdr_t*>(toSend.data());
+            auto out_iface = routingTable->getRoutingInterface(iface);
+            std::memcpy(eth->ether_shost, out_iface.mac.data(), ETHER_ADDR_LEN);
             std::memcpy(eth->ether_dhost, entryIt->second.mac.data(), ETHER_ADDR_LEN);
             packetSender->sendPacket(toSend, iface);
         }

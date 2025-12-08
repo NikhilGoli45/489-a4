@@ -158,10 +158,10 @@ void StaticRouter::handlePacket(std::vector<uint8_t> packet, std::string iface)
 
             uint32_t next_hop = route->gateway ? route->gateway : dst;
             auto mac = arpCache->getEntry(next_hop);
-            auto out_iface = routingTable->getRoutingInterface(route->iface);
-            std::memcpy(eth_hdr->ether_shost, out_iface.mac.data(), ETHER_ADDR_LEN);
 
             if (mac) {
+                auto out_iface = routingTable->getRoutingInterface(route->iface);
+                std::memcpy(eth_hdr->ether_shost, out_iface.mac.data(), ETHER_ADDR_LEN);
                 std::memcpy(eth_hdr->ether_dhost, mac->data(), ETHER_ADDR_LEN);
                 packetSender->sendPacket(packet, route->iface);
             } else {
@@ -252,5 +252,5 @@ void StaticRouter::sendIcmp(const std::vector<uint8_t>& originalPacket,
     icmp->icmp_sum = 0;
     icmp->icmp_sum = cksum(icmp, sizeof(sr_icmp_t3_hdr_t));
 
-    packetSender->sendPacket(response, out_iface_name);
+    packetSender->sendPacket(response, iface_hint);
 }
