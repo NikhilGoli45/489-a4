@@ -200,16 +200,34 @@ void StaticRouter::sendIcmp(const std::vector<uint8_t>& originalPacket,
         }
     }
 
-    if (iface_hint.empty()) {
-        return;
-    }
+    std::string out_iface_name;
+    RoutingInterface out_iface;
 
-    std::string out_iface_name = iface_hint;
-    RoutingInterface out_iface = routingTable->getRoutingInterface(iface_hint);
+    if (type == 3 && code == 3) {
+        bool found = false;
+        for (const auto& [name, intf] : routingTable->getRoutingInterfaces()) {
+            if (intf.ip == orig_ip->ip_dst) {
+                out_iface_name = name;
+                out_iface = intf;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            if (iface_hint.empty()) return;
+            out_iface_name = iface_hint;
+            out_iface = routingTable->getRoutingInterface(iface_hint);
+        }
+    } else {
+        if (iface_hint.empty()) return;
 
-    if (auto route_back = routingTable->getRoutingEntry(orig_ip->ip_src)) {
-        out_iface_name = route_back->iface;
-        out_iface = routingTable->getRoutingInterface(route_back->iface);
+        out_iface_name = iface_hint;
+        out_iface = routingTable->getRoutingInterface(iface_hint);
+
+        if (auto route_back = routingTable->getRoutingEntry(orig_ip->ip_src)) {
+            out_iface_name = route_back->iface;
+            out_iface = routingTable->getRoutingInterface(route_back->iface);
+        }
     }
 
     size_t icmp_data_len = sizeof(sr_ip_hdr_t) + 8;
